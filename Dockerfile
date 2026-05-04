@@ -14,6 +14,7 @@ RUN pip install --no-cache-dir .
 
 COPY . .
 
-RUN mkdir -p data
+# data/ исключён через .dockerignore, создаём пустую mountpoint-папку
+RUN mkdir -p /app/data
 
 CMD ["python", "-m", "app.main"]
