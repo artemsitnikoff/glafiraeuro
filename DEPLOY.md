@@ -31,15 +31,27 @@ nano .env
 - `CLAUDE_CODE_OAUTH_TOKEN` + `CLAUDE_REFRESH_TOKEN` — для Claude CLI в контейнере
 - `RECRUITER_ALLOWED` — `,`-разделённый список Telegram-id с доступом (или пусто = открытый бот)
 
-### 3. Создать папку `data/`
+### 3. Подключить общий `data/` через симлинк на ArkadyJarvis
+
+⚠️ **Важно:** Claude OAuth refresh-токены **одноразовые** — при ротации старый
+становится невалидным. Если ArkadyJarvis и Глафира хранят `.claude_token.json`
+в разных файлах, они перетирают друг друга и оба бота падают с 401.
+
+Делаем общий `data/` через симлинк:
 
 ```bash
-mkdir -p data
+# из директории проекта
+rm -rf data
+ln -s ~/ArkadyJarvis/data ./data
+ls -la data
+# должно показать: data -> /home/user/ArkadyJarvis/data
 ```
 
-В неё будут писаться:
-- `.talantix_token.json` — текущая пара access+refresh токенов Talantix (ротируются)
-- `.claude_token.json` — пара токенов Claude OAuth
+В общей папке `data/` лежат:
+- `.talantix_token.json` — токены Talantix (только наши, у Arkady нет конфликта)
+- `.claude_token.json` — токены Claude OAuth (общие на оба бота)
+
+Docker через `./data:/app/data` корректно следует за симлинком — контейнер видит реальные файлы из `~/ArkadyJarvis/data/`.
 
 ### 4. Запустить
 
