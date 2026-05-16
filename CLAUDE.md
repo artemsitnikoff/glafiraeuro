@@ -106,9 +106,14 @@ Dockerfile, docker-compose.yml, .dockerignore, DEPLOY.md
   - **Лимит first=200** на запрос. **Курсорной пагинации НЕТ** в нашей выборке
     полей — `endCursor`/`hasNextPage` отсутствуют. Достаточно для < 200 вакансий.
   - `VacancyFilterInput` НЕ имеет фильтра по статусу — фильтруем `ACTIVE` локально.
-- `persons(first, after, filter)` → `{ items: [PersonItem] }`.
+- `persons(first, after, filter)` → `{ items: [PersonItem], pageInfo { hasNextPage endCursor } }`.
   - `PersonFilterInput.vacancyIds: [Int!]` и `currentWfStatusNames: [String!]`
     — рабочие фильтры.
+  - **Пагинация — стандартный Relay-cursor** (`pageInfo.endCursor` →
+    следующий `after`, идём пока `hasNextPage=true`).
+  - Сервер **жёстко капит на 50 элементов** за страницу независимо от
+    запрошенного `first` (проверено: first=100/200/500/1000 — все по 50).
+  - `total`/`totalCount` отсутствуют — общее число только перечислением.
   - `PersonItem`: `id, firstName, lastName, middleName, gender, updatedAt`,
     `area { id name }`, `contacts { items { ... on ContactItem { type value } } }`,
     `citizenships { items { ... on Area { id name } } }`,

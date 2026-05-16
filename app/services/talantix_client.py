@@ -7,8 +7,10 @@
   (включая опыт работы, навыки, образование, достижения).
 * `editPerson` требует `firstName` обязательно; шлём существующее.
 * `createPersonComment` принимает `commentCreate: { personId, commentVisibility: { visibleForAll }, text }`.
-* В Vacancy/Persons нет поля `total` — кол-во кандидатов на этапе
-  считаем по длине items с пагинацией first=50.
+* Пагинация `persons` — стандартный Relay-cursor: `pageInfo { hasNextPage endCursor }`.
+  Сервер капит на 50 элементов за страницу независимо от `first` (проверено
+  на проде: first=100/200/500/1000 — все возвращают по 50).
+  Поля `total`/`totalCount` отсутствуют — общее кол-во считаем перечислением.
 """
 
 import asyncio
@@ -164,6 +166,17 @@ query Persons($first: Int!, $after: String, $filter: PersonFilterInput) {
         }
       }
     }
+    pageInfo { hasNextPage endCursor }
+  }
+}
+""".strip()
+
+
+PERSONS_COUNT_QUERY = """
+query PersonsCount($first: Int!, $after: String, $filter: PersonFilterInput) {
+  persons(first: $first, after: $after, filter: $filter) {
+    items { ... on PersonItem { id } }
+    pageInfo { hasNextPage endCursor }
   }
 }
 """.strip()
@@ -308,9 +321,14 @@ class TalantixClient:
         self,
         vacancy_id: int,
         stage_name: str | None = None,
-        max_pages: int = 20,
+        max_pages: int = 100,
     ) -> list[Person]:
-        """Кандидаты вакансии (опц. отфильтровано по этапу). Пагинация first=50."""
+        """Кандидаты вакансии (опц. отфильтровано по этапу).
+
+        Сервер капит на 50 за страницу. Идём по `pageInfo.endCursor` пока
+        `hasNextPage=true`. `max_pages` — страховка от бесконечного цикла
+        (100 страниц = 5000 кандидатов).
+        """
         filter_: dict = {"vacancyIds": [vacancy_id]}
         if stage_name:
             filter_["currentWfStatusNames"] = [stage_name]
@@ -329,31 +347,54 @@ class TalantixClient:
                     continue
                 tag_names = _extract_tag_names(it)
                 results.append(Person.model_validate({**it, "tag_names": tag_names}))
-            # У Talantix's Persons нет pageInfo с `hasNextPage`/`endCursor`
-            # в нашей выборке полей. Пока отдаёт ровно first элементов —
-            # значит дальше может быть ещё. Останавливаемся когда меньше.
-            if len(items) < 50:
+            page_info = persons_obj.get("pageInfo") or {}
+            if not page_info.get("hasNextPage"):
                 break
-            # Нет endCursor — без него пагинация не работает. Прекращаем.
+            cursor = page_info.get("endCursor")
+            if not cursor:
+                break
+        else:
             logger.warning(
-                "Talantix: vacancy %s имеет >50 кандидатов на этапе '%s'; "
-                "пагинация без endCursor пока не поддержана",
-                vacancy_id, stage_name,
+                "Talantix: vacancy %s этап '%s' — упёрлись в max_pages=%d, "
+                "собрано %d кандидатов; возможно есть ещё",
+                vacancy_id, stage_name, max_pages, len(results),
             )
-            break
         return results
 
     async def count_persons_for_vacancy(
-        self, vacancy_id: int, stage_name: str | None = None,
+        self,
+        vacancy_id: int,
+        stage_name: str | None = None,
+        max_pages: int = 100,
     ) -> int:
-        """Кол-во кандидатов по фильтру. Реализовано через перечисление
-        первой страницы (50) — для UI это достаточно. Если ровно 50 —
-        возвращаем "50+"-нотацию через специальное значение -1 (вызывающий
-        отрисует как "50+")."""
-        persons = await self.get_persons_for_vacancy(vacancy_id, stage_name)
-        if len(persons) >= 50:
-            return -1  # ">=50" семантика
-        return len(persons)
+        """Кол-во кандидатов по фильтру. Лёгкий ID-only запрос с курсорной
+        пагинацией — честный int без «50+» хака."""
+        filter_: dict = {"vacancyIds": [vacancy_id]}
+        if stage_name:
+            filter_["currentWfStatusNames"] = [stage_name]
+
+        total = 0
+        cursor: str | None = None
+        for _ in range(max_pages):
+            data = await self._gql(
+                PERSONS_COUNT_QUERY,
+                {"first": 50, "after": cursor, "filter": filter_},
+            )
+            persons_obj = data.get("persons") or {}
+            items = persons_obj.get("items") or []
+            total += sum(1 for it in items if it)
+            page_info = persons_obj.get("pageInfo") or {}
+            if not page_info.get("hasNextPage"):
+                break
+            cursor = page_info.get("endCursor")
+            if not cursor:
+                break
+        else:
+            logger.warning(
+                "Talantix: count vacancy %s этап '%s' — упёрлись в max_pages=%d",
+                vacancy_id, stage_name, max_pages,
+            )
+        return total
 
     async def get_person_full(self, person_id: int) -> Person:
         """Полная карточка с резюме. Если PersonError — возвращаем заглушку

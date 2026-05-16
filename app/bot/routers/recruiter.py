@@ -38,11 +38,6 @@ def _is_scored(person: Person) -> bool:
     return bool(person.lastName and SCORE_PREFIX_RE.match(person.lastName))
 
 
-def _format_count(n: int) -> str:
-    """count_persons возвращает -1 если страниц больше → отрисуем как '50+'."""
-    return "50+" if n < 0 else str(n)
-
-
 class Recruiter(StatesGroup):
     choosing_job = State()
     confirming = State()
@@ -99,7 +94,7 @@ async def show_vacancies(callback: CallbackQuery, state: FSMContext, talantix):
         if stage and (c == 0):
             continue
         buttons.append([InlineKeyboardButton(
-            text=f"{v.title} ({_format_count(c)})",
+            text=f"{v.title} ({c})",
             callback_data=f"recruit:job:{v.id}",
         )])
     buttons.append([InlineKeyboardButton(text="◀️ Меню", callback_data="back:menu")])
