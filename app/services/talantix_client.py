@@ -194,6 +194,7 @@ query Person($id: Int!) {
       gender
       birthDay
       area { id name }
+      source { id name }
       contacts { items { ... on ContactItem { type value } } }
       citizenships { items { ... on Area { id name } } }
       tags { items { ... on PersonTag { id name } } }
@@ -426,6 +427,7 @@ class TalantixClient:
             "citizenship_ids": citizenship_ids,
             "resume_text": resume_text,
             "resume_title": resume_title,
+            "source": node.get("source"),
         })
 
     # ----- Безопасный editPerson -----
@@ -462,6 +464,8 @@ class TalantixClient:
             edit_input["birthDay"] = int(person.birthDay)
         if person.citizenship_ids:
             edit_input["citizenshipIds"] = list(person.citizenship_ids)
+        if person.source and person.source.id is not None:
+            edit_input["sourceId"] = int(person.source.id)
         if person.contacts_list:
             edit_input["contacts"] = [
                 {"type": _GqlEnum(c.type), "value": c.value}

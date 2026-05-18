@@ -53,6 +53,17 @@ class ContactItem(_Base):
     value: str | None = None
 
 
+class SourceRef(_Base):
+    """Источник кандидата: `Отклик, hh.ru` и подобные.
+
+    В PersonItem читается как объект `source { id name }`. В UI
+    Talantix отображается имя; при `editPerson` нужно передавать
+    `sourceId: Int`, иначе источник сбрасывается в null («Не указан»).
+    """
+    id: int | None = None
+    name: str | None = None
+
+
 class Person(_Base):
     """PersonItem из persons/items и person(id) (с обработкой PersonError)."""
     id: int
@@ -71,6 +82,7 @@ class Person(_Base):
     # Заполняется только в "полной" карточке через person(id)
     resume_text: str | None = None
     resume_title: str | None = None
+    source: SourceRef | None = None
 
     @property
     def display_name(self) -> str:

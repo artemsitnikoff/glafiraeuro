@@ -151,10 +151,14 @@ Dockerfile, docker-compose.yml, .dockerignore, DEPLOY.md
   - `areaId: String` (НЕ Int).
   - `citizenshipIds: [String]`.
   - `birthDay: Instant` (timestamp ms).
-  - `source` / `phones` / `email` / `birthday` (camelCase) / `citizenship`
-    — **отсутствуют** в `PersonEditInput`. Источник «Отклик, hh.ru» через
-    API не правится — Talantix вычисляет его сам и при `editPerson` сбрасывает
-    в «Не указан». Только UI или ждать переимпорт.
+  - `source` (как объект input), `phones`, `email`, `birthday` (camelCase),
+    `citizenship` — **отсутствуют** в `PersonEditInput`.
+  - **`sourceId: Int`** — ЕСТЬ. Источник кандидата читается как
+    `PersonItem { source { id name } }` (например, «Отклик, hh.ru»), при
+    `editPerson` обязательно передавать обратно `sourceId: <int>`, иначе
+    источник сбрасывается в null и в UI отображается «Не указан». Делает
+    `safe_set_score_prefix`. До v0.3.7 этого не было — Глафира затирала
+    источник у всех, кого префиксовала.
 - `createPersonTag(personTagCreate: { personId, name })` → `PersonTag`.
   Идемпотентен (повторный create с тем же name не плодит дубль).
   **❗ Удалять теги через API НЕЛЬЗЯ** — нет `deletePersonTag/removePersonTag/...`
@@ -179,7 +183,10 @@ Dockerfile, docker-compose.yml, .dockerignore, DEPLOY.md
 
 Это полная замена. Минимальный safe-набор:
 `id, firstName, lastName, middleName?, gender?, areaId?, birthDay?,
-citizenshipIds?, contacts?`.
+citizenshipIds?, sourceId?, contacts?`.
+**`sourceId` обязательно передавать**, иначе источник «Отклик, hh.ru» и
+любой другой сбрасывается в null. Источник предзагружается из
+`PersonItem { source { id name } }` в `get_person_full`.
 Используй `TalantixClient.safe_set_score_prefix(person, score)` —
 он делает это правильно.
 
