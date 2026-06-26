@@ -127,6 +127,7 @@ query Vacancies($first: Int!, $after: String) {
         department
       }
     }
+    pageInfo { hasNextPage endCursor }
   }
 }
 """.strip()
@@ -291,22 +292,43 @@ class TalantixClient:
 
     # ----- Vacancies -----
 
-    async def get_active_vacancies(self) -> list[Vacancy]:
-        """ACTIVE-вакансии. Talantix возвращает на первой странице до 200
-        записей (включая ARCHIVE), `VacancyFilterInput` фильтрации по статусу
-        не имеет — отфильтруем локально. Если у клиента когда-нибудь станет
-        больше 200 общих вакансий с активными за пределами первой страницы,
-        нужна будет курсорная пагинация (формат `after` пока не известен).
+    async def get_active_vacancies(self, max_pages: int = 50) -> list[Vacancy]:
+        """ACTIVE-вакансии.
+
+        Сервер капит `vacancies` на 200 записей за страницу независимо от
+        `first` (проверено: first=200/500/1000 — все по 200), и в выдачу
+        попадают ВСЕ статусы (ARCHIVE+ACTIVE) — `VacancyFilterInput` фильтра
+        по статусу не имеет, фильтруем ACTIVE локально.
+
+        Архивных вакансий много (≈1500 из 1537 у клиента), поэтому брать
+        только первую страницу нельзя: ACTIVE-вакансии с «поздними» по
+        алфавиту названиями (кириллица С/Т/У…) уходят за 200-й элемент и
+        теряются. Поэтому идём по курсору `pageInfo.endCursor` до конца —
+        у `vacancies` есть стандартный Relay-cursor (раньше его просто не
+        запрашивали). `max_pages` — страховка (50×200 = 10000 вакансий).
         """
         result: list[Vacancy] = []
-        data = await self._gql(VACANCIES_QUERY, {"first": 200, "after": None})
-        items = ((data.get("vacancies") or {}).get("items")) or []
-        for it in items:
-            if not it:
-                continue
-            v = Vacancy.model_validate(it)
-            if v.is_active:
-                result.append(v)
+        cursor: str | None = None
+        for _ in range(max_pages):
+            data = await self._gql(VACANCIES_QUERY, {"first": 200, "after": cursor})
+            vobj = data.get("vacancies") or {}
+            for it in (vobj.get("items") or []):
+                if not it:
+                    continue
+                v = Vacancy.model_validate(it)
+                if v.is_active:
+                    result.append(v)
+            page_info = vobj.get("pageInfo") or {}
+            if not page_info.get("hasNextPage"):
+                break
+            cursor = page_info.get("endCursor")
+            if not cursor:
+                break
+        else:
+            logger.warning(
+                "Talantix: get_active_vacancies упёрлась в max_pages=%d, "
+                "собрано %d ACTIVE; возможно есть ещё", max_pages, len(result),
+            )
         return result
 
     async def get_vacancy(self, vacancy_id: int) -> Vacancy:

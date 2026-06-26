@@ -101,11 +101,26 @@ Dockerfile, docker-compose.yml, .dockerignore, DEPLOY.md
 - `Vacancy` и `Person` — это **interfaces/unions**. Запросы делать через
   inline-фрагменты `... on VacancyItem`, `... on PersonItem`. `person(id)`
   может вернуть `PersonError` — это не GraphQL-ошибка, а часть union.
-- `vacancies(first, after, sortBy, sortAsc)` → `Vacancies { items: [VacancyItem] }`.
+- `vacancies(first, after, sortBy, sortAsc)` → `Vacancies { items: [VacancyItem], pageInfo { hasNextPage endCursor }, count }`.
   - `VacancyItem`: `id, title, status, department, description, url, createdAt`.
-  - **Лимит first=200** на запрос. **Курсорной пагинации НЕТ** в нашей выборке
-    полей — `endCursor`/`hasNextPage` отсутствуют. Достаточно для < 200 вакансий.
-  - `VacancyFilterInput` НЕ имеет фильтра по статусу — фильтруем `ACTIVE` локально.
+  - Сервер **жёстко капит на 200 элементов** за страницу независимо от `first`
+    (проверено: first=200/500/1000 — все по 200).
+  - **Курсорная пагинация ЕСТЬ** — стандартный Relay-cursor `pageInfo
+    { hasNextPage endCursor }` (раньше его просто не запрашивали и считали,
+    что его нет; `after` принимает ТОЛЬКО opaque-`endCursor`, id-строка →
+    «Internal error»). `get_active_vacancies` идёт по курсору до конца —
+    **обязательно**, иначе теряются ACTIVE-вакансии: всего вакансий ≈1537
+    (поле `Vacancies.count`!), из них ARCHIVE ≈1380, ACTIVE ≈154. Если брать
+    только первую страницу (200), ACTIVE с «поздними» по алфавиту названиями
+    (кириллица С/Т/У…) выпадают — так до v0.3.8 пропадала вакансия
+    «Специалист по маркетингу», а бот показывал латинский «CRM-маркетолог».
+  - `Vacancies.count` — общее число вакансий по фильтру (O(1), есть только
+    у вакансий; у `Persons` поля `count/total/totalCount` НЕТ).
+  - `VacancyFilterInput` НЕ имеет фильтра по статусу (`status/statuses/state`
+    — все отвергаются) — фильтруем `ACTIVE` локально после пагинации.
+  - Интроспекция схемы заблокирована полностью: даже `__type { fields }`
+    отдаёт «Field 'fields' in type '__Type' is undefined». Схему выясняем
+    только пробными запросами по validation-ошибкам GraphQL.
 - `persons(first, after, filter)` → `{ items: [PersonItem], pageInfo { hasNextPage endCursor } }`.
   - `PersonFilterInput.vacancyIds: [Int!]` и `currentWfStatusNames: [String!]`
     — рабочие фильтры.
