@@ -24,7 +24,14 @@ class Settings(BaseSettings):
     # Access control: comma-separated telegram IDs. Пусто = открытый бот.
     recruiter_allowed: str = ""
 
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    # extra="ignore": .env шарится с ArkadyJarvis и может содержать чужие
+    # переменные (напр. CLAUDE_TOKEN_FILE) — Глафире они не нужны, но без
+    # ignore pydantic падает на «extra_forbidden» ещё до старта бота.
+    model_config = {
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+        "extra": "ignore",
+    }
 
 
 settings = Settings()
