@@ -24,6 +24,29 @@ REFRESH_BUFFER_MS = 600_000
 _refresh_lock = asyncio.Lock()
 
 
+def _static_token() -> str | None:
+    """Долгоживущий OAuth-токен (`sk-ant-oat01-…`, ~1 год) из .env.
+
+    Если задан `CLAUDE_CODE_OAUTH_TOKEN` и НЕ задан `CLAUDE_REFRESH_TOKEN` —
+    включается «статический режим»: берём токен прямо из env, НЕ читаем и НЕ
+    пишем общий `data/.claude_token.json` и НЕ рефрешим вообще.
+
+    Зачем: на проде `data/` — симлинк на `~/ArkadyJarvis/data`, файл
+    `.claude_token.json` общий с соседним ботом. Refresh-токены одноразовые,
+    а login/setup-token ротируют грант → при авто-рефреше проекты отзывали
+    токен друг у друга (401 invalid credentials / 400 на /oauth/token).
+    Долгоживущий токен + отказ от рефреша эту гонку убирает.
+
+    ⚠️ В этом режиме НЕЛЬЗЯ делать `claude login/setup-token/logout` на том же
+    аккаунте — это отзовёт токен у обоих ботов.
+    """
+    token = (settings.claude_code_oauth_token or "").strip()
+    refresh = (settings.claude_refresh_token or "").strip()
+    if token and not refresh:
+        return token
+    return None
+
+
 def _load() -> dict:
     if TOKEN_FILE.exists():
         try:
@@ -41,6 +64,15 @@ def _save(data: dict) -> None:
 
 
 def init_token_file() -> None:
+    static = _static_token()
+    if static:
+        os.environ["CLAUDE_CODE_OAUTH_TOKEN"] = static
+        logger.info(
+            "Claude: статический долгоживущий токен из env — общий "
+            "data/.claude_token.json не используется, авто-рефреш выключен"
+        )
+        return
+
     if TOKEN_FILE.exists():
         data = _load()
         if data.get("refresh_token"):
@@ -67,6 +99,12 @@ def init_token_file() -> None:
 
 
 async def ensure_fresh_token() -> None:
+    static = _static_token()
+    if static:
+        # Статический режим: токен из env, никаких файлов и рефреша.
+        os.environ["CLAUDE_CODE_OAUTH_TOKEN"] = static
+        return
+
     async with _refresh_lock:
         data = _load()
         now_ms = time.time() * 1000

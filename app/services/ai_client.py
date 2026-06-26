@@ -21,6 +21,15 @@ class AIClient:
         if settings.claude_model:
             args.extend(["--model", settings.claude_model])
 
+        # Prompt-only: запрещаем ВСЕ инструменты. В промпт идёт недоверенный
+        # текст резюме кандидата — без ограничения возможна prompt-injection с
+        # запуском Bash/Edit и т.п. (RCE). Скоринг — чистый текст→JSON, тулзы не
+        # нужны. `--tools ""` (whitelist «disable all tools», документированный
+        # флаг CLI) версионно-устойчив: новый/переименованный тул не «протечёт».
+        # НЕ используем --disallowed-tools: он хард-фейлит на неизвестном имени
+        # тула (CLI убрал/переименовал часть) и роняет каждый вызов.
+        args.extend(["--tools", ""])
+
         logger.info("claude CLI argv: %s", args)
 
         proc = await asyncio.create_subprocess_exec(

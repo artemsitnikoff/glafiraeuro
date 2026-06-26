@@ -229,12 +229,29 @@ citizenshipIds?, sourceId?, contacts?`.
 где `data` симлинк на `~/ArkadyJarvis/data`, при `COPY . .` в образ попадёт
 broken-симлинк и `mkdir -p /app/data` упадёт «File exists».
 
-### 5. Общий `data/` с ArkadyJarvis
+### 5. Общий `data/` с ArkadyJarvis и Claude-токен
 
-На проде `data/` — это симлинк на `~/ArkadyJarvis/data`. Зачем:
-**Claude refresh-токен одноразовый**. Если ArkadyJarvis и Глафира хранят
-`.claude_token.json` отдельно, при ротации одного бота токен другого
-становится невалидным. Общий файл = один источник правды.
+На проде `data/` — это симлинк на `~/ArkadyJarvis/data` (исторически — ради
+общего `data/.claude_token.json`).
+
+**⚠️ ВАЖНО (с v0.3.9): Claude-токен НЕ шарим и НЕ рефрешим.** Общий
+`.claude_token.json` + авто-рефреш = катастрофа: refresh-токены одноразовые,
+а `claude login/setup-token` ротируют грант → ArkadyJarvis и Глафира отзывали
+токен друг у друга (`401 Invalid authentication credentials`, `400` на
+`/oauth/token`). Лечение — **статический долгоживущий токен**:
+- в `.env` задаём `CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-…` (живёт ~1 год,
+  тот же, что у бота), а `CLAUDE_REFRESH_TOKEN=` оставляем **пустым**;
+- `claude_token._static_token()`: если есть OAuth-токен и НЕТ refresh —
+  берём токен прямо из env, `data/.claude_token.json` не читаем/не пишем,
+  не рефрешим вообще (`init_token_file`/`ensure_fresh_token` сразу выходят);
+- **НЕЛЬЗЯ** запускать `claude login/setup-token/logout` на этом аккаунте —
+  отзовёт токен у обоих ботов. Только использовать готовый токен.
+
+**Безопасность скоринга:** `ai_client` зовёт CLI с `--tools ""` (документ.
+флаг «disable all tools»). В промпт идёт недоверенный текст резюме — без
+этого возможна prompt-injection с запуском Bash/Edit (RCE). Whitelist
+`--tools ""` версионно-устойчив; **НЕ используем `--disallowed-tools`** —
+он хард-фейлит на неизвестном имени тула и роняет каждый вызов.
 
 `data/.talantix_token.json` — наш собственный, у Arkady нет.
 
@@ -277,8 +294,8 @@ TALANTIX_USER_AGENT=Глафира/0.3 (contact@example.ru)
 TALANTIX_TARGET_STAGE=ИИ             # имя этапа воронки. Пусто = брать всех.
 CLAUDE_CLI_PATH=claude
 CLAUDE_MODEL=claude-opus-4-7
-CLAUDE_CODE_OAUTH_TOKEN=             # seed для контейнера (на маке не нужен)
-CLAUDE_REFRESH_TOKEN=
+CLAUDE_CODE_OAUTH_TOKEN=             # долгоживущий sk-ant-oat01-… (на маке не нужен — ambient login)
+CLAUDE_REFRESH_TOKEN=                # ОСТАВИТЬ ПУСТЫМ → статрежим без рефреша (см. «Общий data/», грабля 5)
 CLAUDE_OAUTH_CLIENT_ID=9d1c250a-e61b-44d9-88ed-5944d1962f5e
 RECRUITER_ALLOWED=                   # пусто = открытый бот
 ```
